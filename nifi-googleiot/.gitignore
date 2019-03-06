@@ -1,0 +1,13 @@
+
+
+
+#IntelliJ
+.idea/
+*.iml
+
+
+
+#Windows
+Thumbs.db
+
+#MacOS

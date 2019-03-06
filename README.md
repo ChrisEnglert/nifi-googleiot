@@ -1,3 +1,3 @@
 # nifi-googleiot
 
-console.cloud.google.com/iot
+https://console.cloud.google.com/iot

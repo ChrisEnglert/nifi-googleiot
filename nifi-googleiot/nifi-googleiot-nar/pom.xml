@@ -9,7 +9,6 @@
 
     <groupId>org.apache.nifi</groupId>
     <artifactId>nifi-googleiot-nar</artifactId>
-    <version>${parent.version}</version>
     <packaging>nar</packaging>
 
     <description></description>
@@ -23,7 +22,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-googleiot-processors</artifactId>
-            <version>${parent.version}</version>
+            <version>${project.parent.version}</version>
         </dependency>
     </dependencies>
 

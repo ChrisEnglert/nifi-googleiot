@@ -1,5 +1,11 @@
 package org.apache.nifi.processors.googleiot;
 
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SystemResource;
+import org.apache.nifi.annotation.behavior.SystemResourceConsideration;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.SeeAlso;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -19,6 +25,10 @@ import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+@InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
+@Tags({"publish", "MQTT", "IOT", "Google"})
+@CapabilityDescription("Publishes a message to an MQTT topic")
+@SystemResourceConsideration(resource = SystemResource.MEMORY)
 public class GoogleIoTProcessor extends AbstractProcessor {
 
     private ComponentLog logger;
@@ -92,7 +102,6 @@ public class GoogleIoTProcessor extends AbstractProcessor {
             .name("commands")
             .description("From command topic")
             .build();
-
 
     private static final List<PropertyDescriptor> descriptors;
     private static final Set<Relationship> relationships;

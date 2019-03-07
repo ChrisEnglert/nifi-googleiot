@@ -3,11 +3,8 @@ package org.apache.nifi.processors.googleiot;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
-import org.apache.commons.codec.binary.Base64;
 import org.joda.time.DateTime;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -19,6 +16,11 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 
 public class TokenUtils {
+
+    public static char[] getPassword(GoogleIoTDeviceConfig deviceConfig)
+            throws NoSuchAlgorithmException, IOException, InvalidKeySpecException {
+        return getPassword("RS256", deviceConfig.getProjectId(), deviceConfig.getPrivateKeyFile());
+    }
 
     public static char[] getPassword(String algorithm, String projectId, String privateKeyFile)
             throws NoSuchAlgorithmException, IOException, InvalidKeySpecException {
@@ -67,4 +69,6 @@ public class TokenUtils {
 
         return jwtBuilder.signWith(algorithm, key).compact();
     }
+
+
 }

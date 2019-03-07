@@ -1,42 +1,46 @@
 package org.apache.nifi.processors.googleiot;
 
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.nifi.logging.ComponentLog;
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class GoogleIoTDeviceClient {
 
     static MqttCallback mCallback;
     private final ComponentLog logger;
+    private final ConcurrentLinkedQueue queue = new ConcurrentLinkedQueue();
     private GoogleIoTDeviceConfig deviceConfig;
 
+    private MqttClient mqttClient;
+    private MqttConnectOptions mqttConnectOptions;
 
-    public MqttClient startMqtt(
-            String projectId,
-            String cloudRegion,
-            String registryId,
-            String gatewayId,
-            String privateKeyFile,
-            String algorithm)
+    public GoogleIoTDeviceClient(ComponentLog logger) {
+        this.logger = logger;
+    }
+
+    private MqttClient startMqtt()
             throws NoSuchAlgorithmException, IOException, MqttException, InterruptedException,
             InvalidKeySpecException {
 
-
         String mqttServerAddress = MqttClientUtils.getServerAddress();
-        String mqttClientId = MqttClientUtils.getClientId(projectId, cloudRegion, registryId, gatewayId);
+        String mqttClientId = MqttClientUtils.getClientId(deviceConfig);
 
-        MqttConnectOptions connectOptions = MqttClientUtils.getOptions( TokenUtils.getPassword ( algorithm, projectId, privateKeyFile) );
+        MqttConnectOptions connectOptions = MqttClientUtils.getOptions( TokenUtils.getPassword ( deviceConfig ) );
 
         // Create a client, and connect to the Google MQTT bridge.
         MqttClient client = new MqttClient(mqttServerAddress, mqttClientId, new MemoryPersistence());
 
         tryConnect(client, connectOptions);
 
-        attachCallback(client, gatewayId);
+        attachCallback(client, deviceConfig.getDeviceId());
 
         return client;
     }
@@ -96,14 +100,22 @@ public class GoogleIoTDeviceClient {
                 new MqttCallback() {
                     @Override
                     public void connectionLost(Throwable cause) {
-                        // Do nothing...
+                        logger.warn("Connection lost due to {}", new Object[]{cause.getMessage()}, cause);
+
+                        try {
+
+                            mqttConnectOptions.setPassword( TokenUtils.getPassword(deviceConfig) );
+
+                            tryConnect(client, mqttConnectOptions);
+
+                        } catch (Throwable t) {
+                            logger.error("Recconect failed due to {}", new Object[]{t.getMessage()}, t);
+                        }
                     }
 
                     @Override
-                    public void messageArrived(String topic, MqttMessage message) throws Exception {
-                        String payload = new String(message.getPayload());
-                        System.out.println("Payload : " + payload);
-                        // TODO: Insert your parsing / handling of the configuration message here.
+                    public void messageArrived(String topic, MqttMessage message) {
+                        queue.add(new ImmutablePair<>(topic, message.getPayload()));
                     }
 
                     @Override
@@ -111,6 +123,8 @@ public class GoogleIoTDeviceClient {
                         // Do nothing;
                     }
                 };
+
+        client.setCallback(mCallback);
 
         String commandTopic = String.format("/devices/%s/commands/#", deviceId);
         logger.info(String.format("Listening on %s", commandTopic));
@@ -120,16 +134,6 @@ public class GoogleIoTDeviceClient {
 
         client.subscribe(configTopic, 1);
         client.subscribe(commandTopic, 1);
-
-        client.setCallback(mCallback);
-    }
-
-
-    MqttClient mqttClient;
-    MqttConnectOptions mqttConnectOptions;
-
-    public GoogleIoTDeviceClient(ComponentLog logger) {
-        this.logger = logger;
     }
 
     public void onScheduled(GoogleIoTDeviceConfig deviceConfig)
@@ -137,15 +141,7 @@ public class GoogleIoTDeviceClient {
 
         this.deviceConfig = deviceConfig;
 
-        mqttClient = startMqtt(
-                deviceConfig.getProjectId(),
-                deviceConfig.getRegion(),
-                deviceConfig.getRegistryId(),
-                deviceConfig.getDeviceId(),
-                deviceConfig.getPrivateKeyFile(),
-                deviceConfig.getAlgorithm()
-        );
-
+        mqttClient = startMqtt();
     }
 
     public void onStopped() {
@@ -170,7 +166,7 @@ public class GoogleIoTDeviceClient {
         return (mqttClient != null && mqttClient.isConnected());
     }
 
-    public boolean tryPublish(MqttMessage message, String messageType) {
+    public boolean tryPublish(byte[] content, String messageType) {
         if (!messageType.equals("events") && !messageType.equals("state")) {
             logger.error("Invalid message type, must ether be 'state' or events'");
             return false;
@@ -179,13 +175,23 @@ public class GoogleIoTDeviceClient {
         try {
 
             final String dataTopic = String.format("/devices/%s/%s", deviceConfig.getDeviceId(), messageType);
+
+            final MqttMessage message = new MqttMessage(content);
             message.setQos(1);
+
+            //TODO: check isConnected and reconnect with new JWT
+
             mqttClient.publish(dataTopic, message);
 
-        } catch (MqttException e) {
+        } catch (MqttException me) {
+            logger.error("Error closing MQTT client due to {}", new Object[]{me.getMessage()}, me);
             return false;
         }
 
         return true;
+    }
+
+    public Pair<String, byte[]> receive() {
+        return (Pair<String, byte[]>) queue.poll();
     }
 }

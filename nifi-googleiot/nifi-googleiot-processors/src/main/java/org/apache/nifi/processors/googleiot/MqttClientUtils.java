@@ -1,8 +1,6 @@
 package org.apache.nifi.processors.googleiot;
 
-import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttException;
 
 import java.util.Properties;
 
@@ -42,7 +40,7 @@ public class MqttClientUtils {
         return mqttServerAddress;
     }
 
-    public static String getClientId(String projectId, String cloudRegion, String registryId, String gatewayId) {
+    public static String getClientId(final String projectId,final String cloudRegion,final String registryId,final String gatewayId) {
 
         // Create our MQTT client. The mqttClientId is a unique string that identifies this device. For
         // Google Cloud IoT Core, it must be in the format below.
@@ -54,4 +52,7 @@ public class MqttClientUtils {
     }
 
 
+    public static String getClientId(GoogleIoTDeviceConfig deviceConfig) {
+        return getClientId(deviceConfig.getProjectId(), deviceConfig.getRegion(), deviceConfig.getRegistryId(), deviceConfig.getDeviceId());
+    }
 }

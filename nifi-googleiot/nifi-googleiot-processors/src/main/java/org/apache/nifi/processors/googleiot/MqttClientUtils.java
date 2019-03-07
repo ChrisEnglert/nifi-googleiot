@@ -6,7 +6,7 @@ import java.util.Properties;
 
 public class MqttClientUtils {
 
-    public static MqttConnectOptions getOptions(char[] password) {
+    public static MqttConnectOptions getOptions() {
         MqttConnectOptions connectOptions = new MqttConnectOptions();
 
         // Note that the Google Cloud IoT Core only supports MQTT 3.1.1, and Paho requires that we
@@ -22,7 +22,6 @@ public class MqttClientUtils {
         // Paho client library to send the password field. The password field is used to transmit a JWT
         // to authorize the device.
         connectOptions.setUserName("unused");
-        connectOptions.setPassword(password);
 
         return connectOptions;
     }

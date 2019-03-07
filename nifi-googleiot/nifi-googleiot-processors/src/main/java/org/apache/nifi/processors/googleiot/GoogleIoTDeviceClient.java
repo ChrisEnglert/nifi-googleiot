@@ -17,7 +17,9 @@ public class GoogleIoTDeviceClient {
     static MqttCallback mCallback;
     private final ComponentLog logger;
     private final ConcurrentLinkedQueue queue = new ConcurrentLinkedQueue();
+
     private GoogleIoTDeviceConfig deviceConfig;
+    private GoogleIoTDeviceCredential credential;
 
     private MqttClient mqttClient;
     private MqttConnectOptions mqttConnectOptions;
@@ -33,12 +35,16 @@ public class GoogleIoTDeviceClient {
         String mqttServerAddress = MqttClientUtils.getServerAddress();
         String mqttClientId = MqttClientUtils.getClientId(deviceConfig);
 
-        MqttConnectOptions connectOptions = MqttClientUtils.getOptions( TokenUtils.getPassword ( deviceConfig ) );
+        mqttConnectOptions = MqttClientUtils.getOptions();
+
+        credential = GoogleIoTDeviceCredential.apply(deviceConfig);
+
+        credential.updateJWT(mqttConnectOptions);
 
         // Create a client, and connect to the Google MQTT bridge.
         MqttClient client = new MqttClient(mqttServerAddress, mqttClientId, new MemoryPersistence());
 
-        tryConnect(client, connectOptions);
+        tryConnect(client, mqttConnectOptions);
 
         attachCallback(client, deviceConfig.getDeviceId());
 
@@ -82,19 +88,6 @@ public class GoogleIoTDeviceClient {
         }
     }
 
-    public static void sendDataFromDevice(
-            MqttClient client, String deviceId, String messageType, String data) throws MqttException {
-
-        if (!messageType.equals("events") && !messageType.equals("state")) {
-            System.err.println("Invalid message type, must ether be 'state' or events'");
-            return;
-        }
-        final String dataTopic = String.format("/devices/%s/%s", deviceId, messageType);
-        MqttMessage message = new MqttMessage(data.getBytes());
-        message.setQos(1);
-        client.publish(dataTopic, message);
-    }
-
     public void attachCallback(MqttClient client, String deviceId) throws MqttException {
         mCallback =
                 new MqttCallback() {
@@ -104,8 +97,7 @@ public class GoogleIoTDeviceClient {
 
                         try {
 
-                            mqttConnectOptions.setPassword( TokenUtils.getPassword(deviceConfig) );
-
+                            credential.updateJWT(mqttConnectOptions);
                             tryConnect(client, mqttConnectOptions);
 
                         } catch (Throwable t) {
@@ -179,11 +171,13 @@ public class GoogleIoTDeviceClient {
             final MqttMessage message = new MqttMessage(content);
             message.setQos(1);
 
-            //TODO: check isConnected and reconnect with new JWT
+            credential.updateJWT(mqttConnectOptions);
+            tryConnect(mqttClient, mqttConnectOptions);
+
 
             mqttClient.publish(dataTopic, message);
 
-        } catch (MqttException me) {
+        } catch (MqttException | InterruptedException me) {
             logger.error("Error closing MQTT client due to {}", new Object[]{me.getMessage()}, me);
             return false;
         }

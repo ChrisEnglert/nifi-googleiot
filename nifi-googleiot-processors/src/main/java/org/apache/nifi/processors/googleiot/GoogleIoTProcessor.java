@@ -197,6 +197,8 @@ public class GoogleIoTProcessor extends AbstractProcessor {
         FlowFile flowFile = session.create();
         session.putAttribute(flowFile, GoogleIoTProcessor.TopicAttribute, message.getKey());
 
+        flowFile = session.putAllAttributes(flowFile, getDynamicPropertys(context));
+
         session.write(flowFile, outputStream -> outputStream.write( message.getValue() ));
         session.getProvenanceReporter().receive(flowFile, "Google IoT :" + message.getKey());
         session.transfer(flowFile, REL_RECEIVED);
@@ -213,8 +215,6 @@ public class GoogleIoTProcessor extends AbstractProcessor {
 
         final byte[] mqttMessage = getMessage(session, flowFile);
         final String topic = context.getProperty(PROP_TOPIC).evaluateAttributeExpressions(flowFile).getValue();
-
-        flowFile = session.putAllAttributes(flowFile, getDynamicPropertys(context));
 
         final StopWatch stopWatch = new StopWatch(true);
 

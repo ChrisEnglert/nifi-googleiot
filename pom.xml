@@ -16,7 +16,7 @@
   <packaging>pom</packaging>
 
   <properties>
-    <nifi.version>1.8.0</nifi.version>
+    <nifi.version>1.9.0</nifi.version>
     <maven.compiler.target>1.8</maven.compiler.target>
     <maven.compiler.source>1.8</maven.compiler.source>
   </properties>

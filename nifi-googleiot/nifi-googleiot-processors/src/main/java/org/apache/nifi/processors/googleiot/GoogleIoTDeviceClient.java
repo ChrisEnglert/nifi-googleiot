@@ -7,7 +7,6 @@ import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -51,7 +50,11 @@ public class GoogleIoTDeviceClient {
         return client;
     }
 
-    void tryConnect(MqttClient client, MqttConnectOptions connectOptions) throws MqttException, InterruptedException {
+    private synchronized void tryConnect(MqttClient client, MqttConnectOptions connectOptions) throws MqttException, InterruptedException {
+
+        if (client.isConnected()) {
+            return;
+        }
 
         // Both connect and publish operations may fail. If they do, allow retries but with an
         // exponential back-off time period.
@@ -88,7 +91,7 @@ public class GoogleIoTDeviceClient {
         }
     }
 
-    public void attachCallback(MqttClient client, String deviceId) throws MqttException {
+    private void attachCallback(MqttClient client, String deviceId) throws MqttException {
         mCallback =
                 new MqttCallback() {
                     @Override
@@ -136,10 +139,13 @@ public class GoogleIoTDeviceClient {
         mqttClient = startMqtt();
     }
 
-    public void onStopped() {
+    public synchronized void onStopped() {
         try {
-            logger.info("Disconnecting client");
-            mqttClient.disconnect();
+
+            if (mqttClient.isConnected()) {
+                logger.info("Disconnecting client");
+                mqttClient.disconnect();
+            }
         } catch(MqttException me) {
             logger.error("Error disconnecting MQTT client due to {}", new Object[]{me.getMessage()}, me);
         }
@@ -151,11 +157,6 @@ public class GoogleIoTDeviceClient {
         } catch (MqttException me) {
             logger.error("Error closing MQTT client due to {}", new Object[]{me.getMessage()}, me);
         }
-    }
-
-
-    public boolean isConnected(){
-        return (mqttClient != null && mqttClient.isConnected());
     }
 
     public boolean tryPublish(byte[] content, String messageType) {
@@ -172,8 +173,8 @@ public class GoogleIoTDeviceClient {
             message.setQos(1);
 
             credential.updateJWT(mqttConnectOptions);
-            tryConnect(mqttClient, mqttConnectOptions);
 
+            tryConnect(mqttClient, mqttConnectOptions);
 
             mqttClient.publish(dataTopic, message);
 

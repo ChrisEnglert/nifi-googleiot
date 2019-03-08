@@ -4,8 +4,6 @@ import java.util.Properties;
 
 public class GoogleIoTDeviceConfig {
 
-
-
     public GoogleIoTDeviceConfig(
             String deviceId,
             String projectId,
@@ -52,6 +50,10 @@ public class GoogleIoTDeviceConfig {
 
     public String getPrivateKeyFile() {
         return privateKeyFile;
+    }
+
+    public String getDeviceURL() {
+        return String.format("https://console.cloud.google.com/iot/locations/%s/registries/%s/devices/%s?project=%s", region, registryId, deviceId, projectId);
     }
 
     public static GoogleIoTDeviceConfig apply(Properties prop) {

@@ -1,7 +1,6 @@
 package org.apache.nifi.processors.googleiot;
 
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-
 import java.util.Properties;
 
 public class MqttClientUtils {
@@ -22,6 +21,9 @@ public class MqttClientUtils {
         // Paho client library to send the password field. The password field is used to transmit a JWT
         // to authorize the device.
         connectOptions.setUserName("unused");
+
+        connectOptions.setAutomaticReconnect(true);
+        connectOptions.setKeepAliveInterval(10000);
 
         return connectOptions;
     }

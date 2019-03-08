@@ -1,15 +1,14 @@
 package org.apache.nifi.processors.googleiot;
 
+
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.SystemResource;
-import org.apache.nifi.annotation.behavior.SystemResourceConsideration;
-import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
+import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
@@ -28,14 +27,23 @@ import java.util.concurrent.TimeUnit;
 @Tags({"publish", "MQTT", "IOT", "Google"})
 @CapabilityDescription("Publishes a message to an MQTT topic")
 @SystemResourceConsideration(resource = SystemResource.MEMORY)
+@TriggerSerially
+@WritesAttributes({
+@WritesAttribute(attribute = GoogleIoTProcessor.TopicAttribute, description = "Google IoT topic '/device/{deviceId}/{topic}'")})
+@DynamicProperty(name = "Received FlowFile attribute name",
+        value = "Received FlowFile attribute value",
+        expressionLanguageScope = ExpressionLanguageScope.VARIABLE_REGISTRY,
+        description = "Specifies an attribute on received FlowFiles defined by the Dynamic Property's key and value.")
 public class GoogleIoTProcessor extends AbstractProcessor {
 
     private ComponentLog logger;
     private GoogleIoTDeviceClient client;
 
+    public static final String TopicAttribute = "googleiot.topic";
 
     public static final PropertyDescriptor PROP_PROJECT = new PropertyDescriptor.Builder()
             .name("project")
+            .displayName("Project")
             .description("The Google IoT projectid")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
@@ -44,6 +52,7 @@ public class GoogleIoTProcessor extends AbstractProcessor {
 
     public static final PropertyDescriptor PROP_REGION = new PropertyDescriptor.Builder()
             .name("region")
+            .displayName("Region")
             .description("The Google IoT region")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
@@ -53,6 +62,7 @@ public class GoogleIoTProcessor extends AbstractProcessor {
 
     public static final PropertyDescriptor PROP_REGISTRY = new PropertyDescriptor.Builder()
             .name("registry")
+            .displayName("Registry")
             .description("The Google IoT registry")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
@@ -75,7 +85,7 @@ public class GoogleIoTProcessor extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor PROP_TOPIC = new PropertyDescriptor.Builder()
-            .name("messagetype")
+            .name("topic")
             .description("Topic supports 'events' or 'state'")
             .defaultValue("events")
             .required(true)
@@ -124,8 +134,15 @@ public class GoogleIoTProcessor extends AbstractProcessor {
     }
 
     @Override
-    public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return descriptors;
+    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+        return new PropertyDescriptor.Builder()
+                .name(propertyDescriptorName)
+                .required(false)
+                .addValidator(StandardValidators.createAttributeExpressionLanguageValidator(AttributeExpression.ResultType.STRING, true))
+                .addValidator(StandardValidators.ATTRIBUTE_KEY_PROPERTY_NAME_VALIDATOR)
+                .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+                .dynamic(true)
+                .build();
     }
 
     @OnScheduled
@@ -146,6 +163,8 @@ public class GoogleIoTProcessor extends AbstractProcessor {
                     "RS256"
             );
 
+            logger.info("Starting Google IoT Device : " + config.getDeviceURL());
+
             client.onScheduled(config);
         } catch (Exception e) {
             logger.error("failed to start", e);
@@ -155,48 +174,56 @@ public class GoogleIoTProcessor extends AbstractProcessor {
 
     @OnStopped
     public void onStopped(final ProcessContext context) {
-        synchronized (this) {
-            client.onStopped();
-        }
+        client.onStopped();
     }
 
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
 
-        receive(context, session);
+        final boolean received = receive(context, session);
 
-        publish(context, session);
+        final boolean published = publish(context, session);
+
+        if (!received && !published) {
+            context.yield();
+        }
     }
 
-    private void receive(ProcessContext context, ProcessSession session) {
+    private boolean receive(ProcessContext context, ProcessSession session) {
         Pair<String, byte[]> message = client.receive();
         if (message == null) {
-            return;
+            return false;
         }
 
         FlowFile flowFile = session.create();
-        session.putAttribute(flowFile, "googleiot.topic", message.getKey());
+        session.putAttribute(flowFile, GoogleIoTProcessor.TopicAttribute, message.getKey());
 
         session.write(flowFile, outputStream -> outputStream.write( message.getValue() ));
         session.getProvenanceReporter().receive(flowFile, "Google IoT :" + message.getKey());
         session.transfer(flowFile, REL_RECEIVED);
+
+        return true;
     }
 
-    private void publish(ProcessContext context, ProcessSession session) {
+    private boolean publish(ProcessContext context, ProcessSession session) {
 
         FlowFile flowFile = session.get();
         if (flowFile == null) {
-            return;
+            return false;
         }
 
-        byte[] mqttMessage = getMessage(session, flowFile);
-        String messageType = context.getProperty(PROP_TOPIC).evaluateAttributeExpressions(flowFile).getValue();
+        final byte[] mqttMessage = getMessage(session, flowFile);
+        final String topic = context.getProperty(PROP_TOPIC).evaluateAttributeExpressions(flowFile).getValue();
+
+        flowFile = session.putAllAttributes(flowFile, getDynamicPropertys(context));
 
         final StopWatch stopWatch = new StopWatch(true);
 
-        final Boolean res = client.tryPublish(mqttMessage, messageType);
+        final Boolean res = client.tryPublish(mqttMessage, topic);
 
         session.getProvenanceReporter().send(flowFile, "Google IoT", stopWatch.getElapsed(TimeUnit.MILLISECONDS));
         session.transfer(flowFile, REL_SUCCESS);
+
+        return true;
     }
 
 
@@ -204,5 +231,18 @@ public class GoogleIoTProcessor extends AbstractProcessor {
         final byte[] messageContent = new byte[(int) flowfile.getSize()];
         session.read(flowfile, in -> StreamUtils.fillBuffer(in, messageContent, true));
         return messageContent;
+    }
+
+    private static Map<String,String> getDynamicPropertys(ProcessContext context) {
+        Map<PropertyDescriptor, String> processorProperties = context.getProperties();
+        Map<String, String> generatedAttributes = new HashMap<>();
+        for (final Map.Entry<PropertyDescriptor, String> entry : processorProperties.entrySet()) {
+            PropertyDescriptor property = entry.getKey();
+            if (property.isDynamic() && property.isExpressionLanguageSupported()) {
+                String dynamicValue = context.getProperty(property).evaluateAttributeExpressions().getValue();
+                generatedAttributes.put(property.getName(), dynamicValue);
+            }
+        }
+        return generatedAttributes;
     }
 }
